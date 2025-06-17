@@ -273,6 +273,7 @@
                 this.moveHistory = [];
                 this.lastAiMove = null;
                 this.canUndo = false;
+                this.isProcessing = false; // 処理中フラグを追加
                 
                 this.stats = { playerWins: 0, aiWins: 0, draws: 0 };
                 
@@ -299,6 +300,7 @@
                 this.moveHistory = [];
                 this.lastAiMove = null;
                 this.canUndo = false;
+                this.isProcessing = false; // 追加
                 
                 if (this.ctx) {
                     this.renderBoard();
@@ -318,7 +320,7 @@
                 });
 
                 this.canvas.addEventListener('click', (e) => {
-                    if(this.gameOver) return;
+                    if(this.gameOver || this.isProcessing) return; // 処理中チェック追加
                     const rect = this.canvas.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
@@ -411,8 +413,8 @@
             }
             
             // --- ゲームロジック ---
-            handleCellClick(row, col) {
-                if (this.gameOver || this.currentPlayer !== this.PLAYER || this.board[row][col] !== this.EMPTY) {
+            async handleCellClick(row, col) {
+                if (this.gameOver || this.currentPlayer !== this.PLAYER || this.board[row][col] !== this.EMPTY || this.isProcessing) {
                     return;
                 }
 
@@ -422,11 +424,14 @@
                     return;
                 }
 
+                this.isProcessing = true; // 処理開始
                 this.makeMove(row, col, this.PLAYER);
                 if (!this.gameOver) {
                     document.getElementById('hintButton').disabled = true;
-                    setTimeout(() => this.aiMove(), 100);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await this.aiMove();
                 }
+                this.isProcessing = false; // 処理終了
             }
             
             makeMove(row, col, player) {
@@ -599,7 +604,7 @@
             }
 
             undoLastAiMove() {
-                if (!this.canUndo || this.gameOver || this.moveHistory.length < 2) {
+                if (!this.canUndo || this.gameOver || this.moveHistory.length < 2 || this.isProcessing) { // 処理中チェック追加
                     return false;
                 }
                 
@@ -835,7 +840,7 @@
         }
 
         async function showHint() {
-            if (!game || game.gameOver || game.currentPlayer !== game.PLAYER) return;
+            if (!game || game.gameOver || game.currentPlayer !== game.PLAYER || game.isProcessing) return; // 処理中チェック追加
             const hintButton = document.getElementById('hintButton');
             hintButton.disabled = true;
             hintButton.textContent = '考え中...';
@@ -853,7 +858,7 @@
             hintButton.textContent = 'ヒント';
         }
         function undoMove() {
-            if (game) {
+            if (game && !game.isProcessing) { // 処理中チェック追加
                 game.undoLastAiMove();
             }
         }

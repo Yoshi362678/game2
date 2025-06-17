@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五目並べ AI対戦（禁じ手対応版）</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: white;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: clamp(15px, 4vw, 30px);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            width: 95%;
+            max-width: 600px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: clamp(1.8em, 5vw, 2.2em);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status-info {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: clamp(1em, 4vw, 1.3em);
+            font-weight: bold;
+            min-height: 30px;
+            transition: color 0.3s;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .ai-strength-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .ai-strength, button {
+            font-size: clamp(12px, 3.5vw, 14px);
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        button#hintButton {
+             background: linear-gradient(45deg, #26a0da, #31c2b8);
+        }
+        
+        .undo-button {
+            background: linear-gradient(45deg, #ffa726, #ff7043);
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .board-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+            width: 100%;
+        }
+
+        #gomokuCanvas {
+            background-color: #DEB887;
+            border-radius: 5px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            cursor: pointer;
+            width: 100%;
+            height: auto;
+            max-width: 500px;
+            aspect-ratio: 1 / 1;
+        }
+
+        .thinking {
+            color: #ffd700;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+
+        .game-stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            font-size: clamp(12px, 3.5vw, 14px);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        .overlay, .message-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .winner-message, .message-box {
+            color: #333;
+            padding: 30px;
+            border-radius: 20px;
+            font-size: clamp(1.2em, 5vw, 1.5em);
+            font-weight: bold;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 1000;
+            text-align: center;
+            animation: pop-in 0.3s ease-out;
+        }
+
+        .winner-message {
+             background: linear-gradient(45deg, #ff9a9e, #fecfef);
+        }
+
+        .message-box {
+            background: linear-gradient(45deg, #e0eafc, #cfdef3);
+            min-width: 280px;
+        }
+        .message-box button {
+            margin-top: 20px;
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .undo-info {
+            text-align: center;
+            margin-top: 10px;
+            font-size: clamp(10px, 3vw, 12px);
+            color: #ffd700;
+            min-height: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>五目並べ AI対戦</h1>
+        
+        <div class="status-info" id="statusInfo">あなたの番です（黒石）</div>
+        
+        <div class="controls">
+            <button onclick="newGame()">新しいゲーム</button>
+            <button onclick="showHint()" id="hintButton">ヒント</button>
+            <button onclick="undoMove()" id="undoButton" class="undo-button" disabled>待った！</button>
+        </div>
+         <div class="ai-strength-container">
+            <label for="aiStrength">AI強度:</label>
+            <input type="range" id="aiStrength" min="2" max="6" value="4" style="width: 100px;">
+            <span class="strength-label" id="strengthLabel" style="min-width: 60px;">4手先読み</span>
+        </div>
+        
+        <div class="undo-info" id="undoInfo"></div>
+        
+        <div class="board-container">
+            <canvas id="gomokuCanvas"></canvas>
+        </div>
+        
+        <div class="game-stats">
+            <div>プレイヤー: <span id="playerWins">0</span>勝</div>
+            <div>AI: <span id="aiWins">0</span>勝</div>
+            <div>引き分け: <span id="draws">0</span></div>
+            <div>思考時間: <span id="thinkTime">-</span></div>
+        </div>
+    </div>
+
+    <!-- 勝利メッセージ用モーダル -->
+    <div class="overlay" id="winnerOverlay" style="display: none;">
+        <div class="winner-message" id="winnerMessage">
+            <div id="winnerText"></div>
+            <button onclick="hideWinnerMessage()" style="margin-top: 15px;">OK</button>
+        </div>
+    </div>
+
+    <!-- ヒント・情報用モーダル -->
+    <div class="message-overlay" id="messageOverlay" style="display: none;">
+        <div class="message-box" id="messageBox">
+            <p id="messageText"></p>
+            <button onclick="hideMessage()">OK</button>
+        </div>
+    </div>
+
+    <script>
+        class GomokuAI {
+            constructor() {
+                // 定数
+                this.BOARD_SIZE = 15;
+                this.EMPTY = 0;
+                this.PLAYER = 1;  // 黒石
+                this.AI = 2;      // 白石
+                
+                // Canvas設定
+                this.canvas = document.getElementById('gomokuCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                
+                // 動的なサイズ計算
+                this.CELL_SIZE = 0;
+                this.PADDING = 0;
+                this.STONE_RADIUS = 0;
+
+                // ゲーム状態
+                this.board = [];
+                this.currentPlayer = this.PLAYER;
+                this.gameOver = false;
+                this.searchDepth = 4;
+                this.moveHistory = [];
+                this.lastAiMove = null;
+                this.canUndo = false;
+                
+                this.stats = { playerWins: 0, aiWins: 0, draws: 0 };
+                
+                // 初期化処理
+                this.initGame();
+                this.setupEventListeners();
+                this.resizeCanvas();
+            }
+
+            resizeCanvas() {
+                const canvasSize = this.canvas.clientWidth;
+                this.canvas.width = canvasSize;
+                this.canvas.height = canvasSize;
+                this.CELL_SIZE = canvasSize / (this.BOARD_SIZE);
+                this.PADDING = this.CELL_SIZE / 2;
+                this.STONE_RADIUS = this.CELL_SIZE / 2 * 0.85;
+                this.renderBoard();
+            }
+            
+            initGame() {
+                this.board = Array(this.BOARD_SIZE).fill(null).map(() => Array(this.BOARD_SIZE).fill(this.EMPTY));
+                this.currentPlayer = this.PLAYER;
+                this.gameOver = false;
+                this.moveHistory = [];
+                this.lastAiMove = null;
+                this.canUndo = false;
+                
+                if (this.ctx) {
+                    this.renderBoard();
+                }
+                this.updateStatus("あなたの番です（黒石）");
+                this.updateUndoButton();
+                const hintButton = document.getElementById('hintButton');
+                if (hintButton) {
+                    hintButton.disabled = false;
+                }
+            }
+            
+            setupEventListeners() {
+                document.getElementById('aiStrength').addEventListener('input', (e) => {
+                    this.searchDepth = parseInt(e.target.value, 10);
+                    document.getElementById('strengthLabel').textContent = `${this.searchDepth}手先読み`;
+                });
+
+                this.canvas.addEventListener('click', (e) => {
+                    if(this.gameOver) return;
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+
+                    const col = Math.floor((x - this.PADDING + this.CELL_SIZE / 2) / this.CELL_SIZE);
+                    const row = Math.floor((y - this.PADDING + this.CELL_SIZE / 2) / this.CELL_SIZE);
+                    
+                    if (row >= 0 && row < this.BOARD_SIZE && col >= 0 && col < this.BOARD_SIZE) {
+                         this.handleCellClick(row, col);
+                    }
+                });
+
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+
+            // --- Canvas描画関連 ---
+            renderBoard() {
+                if (!this.ctx) return;
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.drawGrid();
+                this.drawStones();
+            }
+
+            drawGrid() {
+                this.ctx.strokeStyle = '#8B4513';
+                this.ctx.lineWidth = 1;
+
+                for (let i = 0; i < this.BOARD_SIZE; i++) {
+                    const pos = this.PADDING + i * this.CELL_SIZE;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos, this.PADDING);
+                    this.ctx.lineTo(pos, this.canvas.height - this.PADDING);
+                    this.ctx.stroke();
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(this.PADDING, pos);
+                    this.ctx.lineTo(this.canvas.width - this.PADDING, pos);
+                    this.ctx.stroke();
+                }
+
+                const starPositions = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
+                this.ctx.fillStyle = '#8B4513';
+                starPositions.forEach(([row, col]) => {
+                    const x = this.PADDING + col * this.CELL_SIZE;
+                    const y = this.PADDING + row * this.CELL_SIZE;
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, 4, 0, 2 * Math.PI);
+                    this.ctx.fill();
+                });
+            }
+
+            drawStones() {
+                if (!this.board || this.board.length === 0) return;
+                for (let row = 0; row < this.BOARD_SIZE; row++) {
+                    if (this.board[row]) { 
+                        for (let col = 0; col < this.BOARD_SIZE; col++) {
+                            if (this.board[row][col] !== this.EMPTY) {
+                                this.drawStone(row, col, this.board[row][col]);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            drawStone(row, col, player) {
+                const x = this.PADDING + col * this.CELL_SIZE;
+                const y = this.PADDING + row * this.CELL_SIZE;
+                
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, this.STONE_RADIUS, 0, 2 * Math.PI);
+
+                const gradientOffset = this.STONE_RADIUS * 0.3;
+                let gradient;
+                if (player === this.PLAYER) { // 黒石
+                    gradient = this.ctx.createRadialGradient(x - gradientOffset, y - gradientOffset, 2, x, y, this.STONE_RADIUS);
+                    gradient.addColorStop(0, '#666');
+                    gradient.addColorStop(1, '#000');
+                } else { // 白石
+                    gradient = this.ctx.createRadialGradient(x - gradientOffset, y - gradientOffset, 2, x, y, this.STONE_RADIUS);
+                    gradient.addColorStop(0, '#fff');
+                    gradient.addColorStop(1, '#ddd');
+                }
+                this.ctx.fillStyle = gradient;
+                this.ctx.fill();
+
+                if (this.lastAiMove && this.lastAiMove.row === row && this.lastAiMove.col === col) {
+                     this.ctx.strokeStyle = '#ff0';
+                     this.ctx.lineWidth = 3;
+                     this.ctx.stroke();
+                }
+            }
+            
+            // --- ゲームロジック ---
+            handleCellClick(row, col) {
+                if (this.gameOver || this.currentPlayer !== this.PLAYER || this.board[row][col] !== this.EMPTY) {
+                    return;
+                }
+
+                const forbiddenCheck = this.isForbiddenMove(row, col);
+                if (forbiddenCheck.isForbidden) {
+                    showMessage(`禁じ手です: ${forbiddenCheck.type}`);
+                    return;
+                }
+
+                this.makeMove(row, col, this.PLAYER);
+                if (!this.gameOver) {
+                    document.getElementById('hintButton').disabled = true;
+                    setTimeout(() => this.aiMove(), 100);
+                }
+            }
+            
+            makeMove(row, col, player) {
+                this.moveHistory.push({ row, col });
+                this.board[row][col] = player;
+                
+                if (player === this.PLAYER) {
+                    this.canUndo = false;
+                    this.lastAiMove = null;
+                } else {
+                    this.lastAiMove = { row, col };
+                    this.canUndo = true;
+                }
+                
+                this.renderBoard();
+                
+                if (this.checkWinner(row, col, player)) {
+                    this.handleGameOver(player);
+                } else if (this.isBoardFull()) {
+                    this.handleGameOver(this.EMPTY);
+                } else {
+                    this.currentPlayer = (this.currentPlayer === this.PLAYER) ? this.AI : this.PLAYER;
+                    this.updateTurnStatus();
+                }
+                this.updateUndoButton();
+            }
+
+            handleGameOver(winner) {
+                this.gameOver = true;
+                let message = "";
+                if (winner === this.PLAYER) {
+                    message = "あなたの勝利！";
+                    this.stats.playerWins++;
+                } else if (winner === this.AI) {
+                    message = "AIの勝利！";
+                    this.stats.aiWins++;
+                } else {
+                    message = "引き分け！";
+                    this.stats.draws++;
+                }
+                this.updateStatus(message);
+                showWinnerMessage(message);
+                this.updateStats();
+                document.getElementById('hintButton').disabled = true;
+                this.canUndo = false;
+            }
+
+            updateTurnStatus() {
+                 if (this.currentPlayer === this.PLAYER) {
+                    this.updateStatus("あなたの番です（黒石）");
+                    document.getElementById('hintButton').disabled = false;
+                } else {
+                    this.updateStatus("AIが考え中...", true);
+                }
+            }
+            
+            checkWinner(row, col, player) {
+                return this.countConsecutiveStones(row, col, player) >= 5;
+            }
+
+            countConsecutiveStones(row, col, player) {
+                 const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+                 let maxCount = 0;
+                 for (const [dr, dc] of directions) {
+                     let count = 1;
+                     for(let i = 1; i < 6; i++) {
+                         const r = row + i * dr;
+                         const c = col + i * dc;
+                         if(this.isOutOfBounds(r,c) || this.board[r][c] !== player) break;
+                         count++;
+                     }
+                      for(let i = 1; i < 6; i++) {
+                         const r = row - i * dr;
+                         const c = col - i * dc;
+                         if(this.isOutOfBounds(r,c) || this.board[r][c] !== player) break;
+                         count++;
+                     }
+                     if(count > maxCount) maxCount = count;
+                 }
+                 return maxCount;
+            }
+            
+            isOutOfBounds(r, c) {
+                return r < 0 || r >= this.BOARD_SIZE || c < 0 || c >= this.BOARD_SIZE;
+            }
+
+            isBoardFull() {
+                return this.moveHistory.length === this.BOARD_SIZE * this.BOARD_SIZE;
+            }
+            
+            get(r,c) {
+                if (this.isOutOfBounds(r,c)) return -1; // -1 for out-of-bounds
+                return this.board[r][c];
+            }
+
+            // --- 禁じ手チェック関連 (修正済み) ---
+            isForbiddenMove(row, col) {
+                if (this.currentPlayer !== this.PLAYER) {
+                    return { isForbidden: false };
+                }
+
+                this.board[row][col] = this.PLAYER;
+
+                // 五連が成立する場合、禁じ手ではない
+                if (this.checkWinner(row, col, this.PLAYER)) {
+                    this.board[row][col] = this.EMPTY;
+                    return { isForbidden: false };
+                }
+                
+                // 長連チェック
+                if (this.countConsecutiveStones(row, col, this.PLAYER) > 5) {
+                    this.board[row][col] = this.EMPTY;
+                    return { isForbidden: true, type: '長連' };
+                }
+
+                let openThrees = 0;
+                let openFours = 0;
+                const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+                
+                for (const [dr, dc] of directions) {
+                    const { threes, fours } = this.checkLinePatterns(row, col, dr, dc, this.PLAYER);
+                    openThrees += threes;
+                    openFours += fours;
+                }
+
+                this.board[row][col] = this.EMPTY;
+                
+                if (openThrees >= 2) return { isForbidden: true, type: '三三' };
+                if (openFours >= 2) return { isForbidden: true, type: '四四' };
+
+                return { isForbidden: false };
+            }
+
+            checkLinePatterns(row, col, dr, dc, player) {
+                let threes = 0;
+                let fours = 0;
+                const opponent = (player === this.PLAYER) ? this.AI : this.PLAYER;
+
+                // Check for open three
+                let s = "";
+                for (let i = -4; i <= 4; i++) s += this.get(row + i * dr, col + i * dc);
+                if (s.includes("01110")) threes++;
+                if (s.includes("010110")) threes++;
+                if (s.includes("011010")) threes++;
+
+
+                // Check for four
+                s = "";
+                for (let i = -5; i <= 5; i++) s += this.get(row + i * dr, col + i * dc);
+                 if (s.includes("011110")) { // Open four
+                    fours++;
+                } else { // Closed four
+                    if (s.includes(`${opponent}11110`) || s.includes("01111" + opponent)) fours++;
+                    if (s.includes("10111") || s.includes("11011") || s.includes("11101")) fours++;
+                }
+                
+                return {threes, fours};
+            }
+
+
+            // --- AI思考ルーチン ---
+            async aiMove() {
+                if (this.gameOver) return;
+                
+                const startTime = Date.now();
+                const [row, col] = await this.getBestMove();
+                const endTime = Date.now();
+                
+                if (row !== null && col !== null && row !== -1) {
+                    this.makeMove(row, col, this.AI);
+                    document.getElementById('thinkTime').textContent = `${((endTime - startTime) / 1000).toFixed(2)}秒`;
+                }
+            }
+
+            undoLastAiMove() {
+                if (!this.canUndo || this.gameOver || this.moveHistory.length < 2) {
+                    return false;
+                }
+                
+                const aiMove = this.moveHistory.pop();
+                this.board[aiMove.row][aiMove.col] = this.EMPTY;
+                
+                const playerMove = this.moveHistory.pop();
+                this.board[playerMove.row][playerMove.col] = this.EMPTY;
+                
+                this.currentPlayer = this.PLAYER;
+                this.lastAiMove = null;
+                this.canUndo = false;
+                
+                this.renderBoard();
+                this.updateStatus("あなたの番です（黒石）- 待ったしました");
+                this.updateUndoButton();
+                document.getElementById('hintButton').disabled = false;
+                
+                return true;
+            }
+            
+            async getBestMove() {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        const [, row, col] = this.minimax(this.searchDepth, true, -Infinity, Infinity);
+                        resolve([row, col]);
+                    }, 10);
+                });
+            }
+            
+            minimax(depth, isMaximizing, alpha, beta) {
+                const score = this.evaluateBoard();
+                if (Math.abs(score) > 50000) return [score, null, null];
+                if (depth === 0 || this.isBoardFull()) return [score, null, null];
+                
+                const candidates = this.getCandidateMoves();
+                if (candidates.length === 0) return [0, null, null];
+                
+                let bestMove = { row: -1, col: -1 };
+                
+                if (isMaximizing) {
+                    let maxEval = -Infinity;
+                    for (const [row, col] of candidates) {
+                        this.board[row][col] = this.AI;
+                        const [evalScore] = this.minimax(depth - 1, false, alpha, beta);
+                        this.board[row][col] = this.EMPTY;
+                        if (evalScore > maxEval) {
+                            maxEval = evalScore;
+                            bestMove = { row, col };
+                        }
+                        alpha = Math.max(alpha, evalScore);
+                        if (beta <= alpha) break;
+                    }
+                    return [maxEval, bestMove.row, bestMove.col];
+                } else {
+                    let minEval = Infinity;
+                    for (const [row, col] of candidates) {
+                         if(this.isForbiddenMove(row, col).isForbidden) continue;
+                        this.board[row][col] = this.PLAYER;
+                        const [evalScore] = this.minimax(depth - 1, true, alpha, beta);
+                        this.board[row][col] = this.EMPTY;
+                        if (evalScore < minEval) {
+                            minEval = evalScore;
+                            bestMove = { row, col };
+                        }
+                        beta = Math.min(beta, evalScore);
+                        if (beta <= alpha) break;
+                    }
+                    return [minEval, bestMove.row, bestMove.col];
+                }
+            }
+
+            getCandidateMoves() {
+                const candidates = new Set();
+                if (this.moveHistory.length === 0) {
+                    return [[Math.floor(this.BOARD_SIZE/2), Math.floor(this.BOARD_SIZE/2)]];
+                }
+                
+                for (let r = 0; r < this.BOARD_SIZE; r++) {
+                    for (let c = 0; c < this.BOARD_SIZE; c++) {
+                        if (this.board[r][c] === this.EMPTY) {
+                            if (this.hasNeighbor(r, c)) {
+                                candidates.add(`${r},${c}`);
+                            }
+                        }
+                    }
+                }
+                 const candidateArray = Array.from(candidates).map(s => s.split(',').map(Number));
+                 return candidateArray.length > 0 ? candidateArray : [[Math.floor(this.BOARD_SIZE/2), Math.floor(this.BOARD_SIZE/2)]];
+            }
+
+            hasNeighbor(r, c) {
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        if (i === 0 && j === 0) continue;
+                        const nr = r + i;
+                        const nc = c + j;
+                        if (nr >= 0 && nr < this.BOARD_SIZE && nc >= 0 && nc < this.BOARD_SIZE && this.board[nr][nc] !== this.EMPTY) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            evaluateBoard() {
+                let totalScore = 0;
+                for(let r=0; r<this.BOARD_SIZE; r++){
+                    for(let c=0; c<this.BOARD_SIZE; c++){
+                        totalScore += this.evaluatePosition(r,c);
+                    }
+                }
+                return totalScore;
+            }
+
+            evaluatePosition(r, c) {
+                let score = 0;
+                const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+                directions.forEach(([dr, dc]) => {
+                    score += this.getLineScore(r, c, dr, dc);
+                });
+                return score;
+            }
+
+            getLineScore(r, c, dr, dc) {
+                let aiCount = 0;
+                let playerCount = 0;
+                let emptyCount = 0;
+                for (let i = 0; i < 5; i++) {
+                    const nr = r + i * dr;
+                    const nc = c + i * dc;
+                    if (this.isOutOfBounds(nr, nc)) return 0;
+                    
+                    if(this.board[nr][nc] === this.AI) aiCount++;
+                    else if(this.board[nr][nc] === this.PLAYER) playerCount++;
+                    else emptyCount++;
+                }
+
+                if (aiCount > 0 && playerCount > 0) return 0;
+
+                let score = 0;
+                if(aiCount === 5) score = 100000;
+                else if(aiCount === 4 && emptyCount === 1) score = 10000;
+                else if(aiCount === 3 && emptyCount === 2) score = 1000;
+                else if(aiCount === 2 && emptyCount === 3) score = 100;
+                
+                if(playerCount === 5) score = -100000;
+                else if(playerCount === 4 && emptyCount === 1) score = -10000;
+                else if(playerCount === 3 && emptyCount === 2) score = -1000;
+                else if(playerCount === 2 && emptyCount === 3) score = -100;
+
+                return score;
+            }
+            
+            getPlayerHint() {
+                if (this.gameOver || this.currentPlayer !== this.PLAYER) return [null, null];
+                const tempDepth = this.searchDepth;
+                this.searchDepth = Math.min(tempDepth, 4); 
+                const [, row, col] = this.minimax(this.searchDepth, false, -Infinity, Infinity);
+                this.searchDepth = tempDepth;
+                return [row, col];
+            }
+            
+            // --- UI更新関連 ---
+            updateStatus(message, isThinking = false) {
+                const statusElement = document.getElementById('statusInfo');
+                if(statusElement) {
+                    statusElement.textContent = message;
+                    statusElement.className = 'status-info';
+                    if(isThinking) statusElement.classList.add('thinking');
+                }
+            }
+            
+            updateUndoButton() {
+                const undoButton = document.getElementById('undoButton');
+                const undoInfo = document.getElementById('undoInfo');
+                
+                if(undoButton && undoInfo){
+                    if (this.canUndo && !this.gameOver && this.currentPlayer === this.PLAYER) {
+                        undoButton.disabled = false;
+                        undoInfo.textContent = "AIの最後の手を待ったできます";
+                    } else {
+                        undoButton.disabled = true;
+                        undoInfo.textContent = "";
+                    }
+                }
+            }
+
+            updateStats() {
+                const playerWins = document.getElementById('playerWins');
+                const aiWins = document.getElementById('aiWins');
+                const draws = document.getElementById('draws');
+                if(playerWins && aiWins && draws) {
+                    playerWins.textContent = this.stats.playerWins;
+                    aiWins.textContent = this.stats.aiWins;
+                    draws.textContent = this.stats.draws;
+                }
+            }
+        }
+        
+        let game;
+        
+        // --- グローバル関数 ---
+        function initGame() { game = new GomokuAI(); }
+        
+        function newGame() {
+            hideWinnerMessage(false);
+            if(game) game.initGame();
+        }
+
+        // メッセージ表示
+        function showMessage(message) {
+            document.getElementById('messageText').textContent = message;
+            document.getElementById('messageOverlay').style.display = 'flex';
+        }
+        function hideMessage() {
+            document.getElementById('messageOverlay').style.display = 'none';
+        }
+
+        // 勝者メッセージ表示
+        function showWinnerMessage(message) {
+            document.getElementById('winnerText').textContent = message;
+            document.getElementById('winnerOverlay').style.display = 'flex';
+            setTimeout(() => {
+                 hideWinnerMessage(true);
+            }, 3000);
+        }
+        function hideWinnerMessage(shouldStartNewGame = false) {
+             document.getElementById('winnerOverlay').style.display = 'none';
+             if (shouldStartNewGame) {
+                 // newGame(); //自動で開始しないようにコメントアウト
+             }
+        }
+
+        async function showHint() {
+            if (!game || game.gameOver || game.currentPlayer !== game.PLAYER) return;
+            const hintButton = document.getElementById('hintButton');
+            hintButton.disabled = true;
+            hintButton.textContent = '考え中...';
+
+            const [row, col] = await new Promise(resolve => {
+                setTimeout(() => resolve(game.getPlayerHint()), 10); 
+            });
+            
+            if (row !== null && col !== null && row !== -1) {
+                showMessage(`ヒント：列 ${col + 1}, 行 ${row + 1}`);
+            } else {
+                showMessage("有効なヒントが見つかりませんでした。");
+            }
+            hintButton.disabled = false;
+            hintButton.textContent = 'ヒント';
+        }
+        function undoMove() {
+            if (game) {
+                game.undoLastAiMove();
+            }
+        }
+        
+        // --- 初期化 ---
+        document.addEventListener('DOMContentLoaded', initGame);
+
+    </script>
+</body>
+</html>

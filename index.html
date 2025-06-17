@@ -213,8 +213,8 @@
         </div>
          <div class="ai-strength-container">
             <label for="aiStrength">AI強度:</label>
-            <input type="range" id="aiStrength" min="2" max="6" value="4" style="width: 100px;">
-            <span class="strength-label" id="strengthLabel" style="min-width: 60px;">4手先読み</span>
+            <input type="range" id="aiStrength" min="2" max="6" value="2" style="width: 100px;">
+            <span class="strength-label" id="strengthLabel" style="min-width: 60px;">2手先読み</span>
         </div>
         
         <div class="undo-info" id="undoInfo"></div>
@@ -269,7 +269,7 @@
                 this.board = [];
                 this.currentPlayer = this.PLAYER;
                 this.gameOver = false;
-                this.searchDepth = 4;
+                this.searchDepth = 2; // AI強度のデフォルトを2に変更
                 this.moveHistory = [];
                 this.lastAiMove = null;
                 this.canUndo = false;
@@ -522,7 +522,7 @@
                 return this.board[r][c];
             }
 
-            // --- 禁じ手チェック関連 (全面修正) ---
+            // --- 禁じ手チェック関連 ---
             isForbiddenMove(row, col) {
                 if (this.currentPlayer !== this.PLAYER) return { isForbidden: false };
             

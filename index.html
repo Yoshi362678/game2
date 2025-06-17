@@ -235,7 +235,7 @@
     <div class="overlay" id="winnerOverlay" style="display: none;">
         <div class="winner-message" id="winnerMessage">
             <div id="winnerText"></div>
-            <button onclick="hideWinnerMessage()" style="margin-top: 15px;">OK</button>
+            <button onclick="hideWinnerMessage(false)" style="margin-top: 15px;">OK</button>
         </div>
     </div>
 
@@ -401,4 +401,466 @@
                     gradient.addColorStop(1, '#ddd');
                 }
                 this.ctx.fillStyle = gradient;
-                t
+                this.ctx.fill();
+
+                if (this.lastAiMove && this.lastAiMove.row === row && this.lastAiMove.col === col) {
+                     this.ctx.strokeStyle = '#ff0';
+                     this.ctx.lineWidth = 3;
+                     this.ctx.stroke();
+                }
+            }
+            
+            // --- ゲームロジック ---
+            handleCellClick(row, col) {
+                if (this.gameOver || this.currentPlayer !== this.PLAYER || this.board[row][col] !== this.EMPTY) {
+                    return;
+                }
+
+                const forbiddenCheck = this.isForbiddenMove(row, col);
+                if (forbiddenCheck.isForbidden) {
+                    showMessage(`禁じ手です: ${forbiddenCheck.type}`);
+                    return;
+                }
+
+                this.makeMove(row, col, this.PLAYER);
+                if (!this.gameOver) {
+                    document.getElementById('hintButton').disabled = true;
+                    setTimeout(() => this.aiMove(), 100);
+                }
+            }
+            
+            makeMove(row, col, player) {
+                this.moveHistory.push({ row, col });
+                this.board[row][col] = player;
+                
+                if (player === this.PLAYER) {
+                    this.canUndo = false;
+                    this.lastAiMove = null;
+                } else {
+                    this.lastAiMove = { row, col };
+                    this.canUndo = true;
+                }
+                
+                this.renderBoard();
+                
+                if (this.checkWinner(row, col, player)) {
+                    this.handleGameOver(player);
+                } else if (this.isBoardFull()) {
+                    this.handleGameOver(this.EMPTY);
+                } else {
+                    this.currentPlayer = (this.currentPlayer === this.PLAYER) ? this.AI : this.PLAYER;
+                    this.updateTurnStatus();
+                }
+                this.updateUndoButton();
+            }
+
+            handleGameOver(winner) {
+                this.gameOver = true;
+                let message = "";
+                if (winner === this.PLAYER) {
+                    message = "あなたの勝利！";
+                    this.stats.playerWins++;
+                } else if (winner === this.AI) {
+                    message = "AIの勝利！";
+                    this.stats.aiWins++;
+                } else {
+                    message = "引き分け！";
+                    this.stats.draws++;
+                }
+                this.updateStatus(message);
+                showWinnerMessage(message);
+                this.updateStats();
+                document.getElementById('hintButton').disabled = true;
+                this.canUndo = false;
+            }
+
+            updateTurnStatus() {
+                 if (this.currentPlayer === this.PLAYER) {
+                    this.updateStatus("あなたの番です（黒石）");
+                    document.getElementById('hintButton').disabled = false;
+                } else {
+                    this.updateStatus("AIが考え中...", true);
+                }
+            }
+            
+            checkWinner(row, col, player) {
+                return this.countConsecutiveStones(row, col, player) >= 5;
+            }
+
+            countConsecutiveStones(row, col, player) {
+                 const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+                 let maxCount = 0;
+                 for (const [dr, dc] of directions) {
+                     let count = 1;
+                     for(let i = 1; i < 6; i++) {
+                         const r = row + i * dr;
+                         const c = col + i * dc;
+                         if(this.isOutOfBounds(r,c) || this.board[r][c] !== player) break;
+                         count++;
+                     }
+                      for(let i = 1; i < 6; i++) {
+                         const r = row - i * dr;
+                         const c = col - i * dc;
+                         if(this.isOutOfBounds(r,c) || this.board[r][c] !== player) break;
+                         count++;
+                     }
+                     if(count > maxCount) maxCount = count;
+                 }
+                 return maxCount;
+            }
+            
+            isOutOfBounds(r, c) {
+                return r < 0 || r >= this.BOARD_SIZE || c < 0 || c >= this.BOARD_SIZE;
+            }
+
+            isBoardFull() {
+                return this.moveHistory.length === this.BOARD_SIZE * this.BOARD_SIZE;
+            }
+            
+            get(r,c) {
+                if (this.isOutOfBounds(r,c)) return -1; // -1 for out-of-bounds
+                return this.board[r][c];
+            }
+
+            // --- 禁じ手チェック関連 (全面修正) ---
+            isForbiddenMove(row, col) {
+                if (this.currentPlayer !== this.PLAYER) return { isForbidden: false };
+            
+                this.board[row][col] = this.PLAYER;
+            
+                if (this.checkWinner(row, col, this.PLAYER)) {
+                    this.board[row][col] = this.EMPTY;
+                    return { isForbidden: false };
+                }
+            
+                if (this.countConsecutiveStones(row, col, this.PLAYER) > 5) {
+                    this.board[row][col] = this.EMPTY;
+                    return { isForbidden: true, type: '長連' };
+                }
+            
+                let openThrees = 0;
+                let fours = 0;
+                const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+            
+                for (const [dr, dc] of directions) {
+                    const lineAnalysis = this.analyzeLine(row, col, dr, dc);
+                    openThrees += lineAnalysis.openThrees;
+                    fours += lineAnalysis.fours;
+                }
+            
+                this.board[row][col] = this.EMPTY;
+            
+                if (openThrees >= 2) return { isForbidden: true, type: '三三' };
+                if (fours >= 2) return { isForbidden: true, type: '四四' };
+            
+                return { isForbidden: false };
+            }
+
+            analyzeLine(row, col, dr, dc) {
+                let openThrees = 0;
+                let fours = 0;
+                const player = this.PLAYER;
+
+                // Open Three check (01110)
+                if (this.get(row - dr, col - dc) === 0 && this.get(row + dr, col + dc) === player && this.get(row + 2 * dr, col + 2 * dc) === player && this.get(row + 3 * dr, col + 3 * dc) === 0) openThrees++;
+                if (this.get(row - 2*dr, col - 2*dc) === 0 && this.get(row - dr, col - dc) === player && this.get(row + dr, col + dc) === player && this.get(row + 2*dr, col + 2*dc) === 0) openThrees++;
+                if (this.get(row - 3*dr, col - 3*dc) === 0 && this.get(row - 2*dr, col - 2*dc) === player && this.get(row - dr, col - dc) === player && this.get(row + dr, col + dc) === 0) openThrees++;
+
+                // Four check (X11110 or 01111X etc.)
+                let consecutive = 0;
+                let openEnds = 0;
+                // forward
+                for(let i=1; i<5; i++) {
+                    if(this.get(row + i*dr, col + i*dc) === player) consecutive++;
+                    else { if(this.get(row + i*dr, col + i*dc) === 0) openEnds++; break; }
+                }
+                // backward
+                 for(let i=1; i<5; i++) {
+                    if(this.get(row - i*dr, col - i*dc) === player) consecutive++;
+                    else { if(this.get(row - i*dr, col - i*dc) === 0) openEnds++; break; }
+                }
+                if (consecutive === 3) fours++;
+
+                return { openThrees, fours };
+            }
+
+            // --- AI思考ルーチン ---
+            async aiMove() {
+                if (this.gameOver) return;
+                
+                const startTime = Date.now();
+                const [row, col] = await this.getBestMove();
+                const endTime = Date.now();
+                
+                if (row !== null && col !== null && row !== -1) {
+                    this.makeMove(row, col, this.AI);
+                    document.getElementById('thinkTime').textContent = `${((endTime - startTime) / 1000).toFixed(2)}秒`;
+                }
+            }
+
+            undoLastAiMove() {
+                if (!this.canUndo || this.gameOver || this.moveHistory.length < 2) {
+                    return false;
+                }
+                
+                const aiMove = this.moveHistory.pop();
+                this.board[aiMove.row][aiMove.col] = this.EMPTY;
+                
+                const playerMove = this.moveHistory.pop();
+                this.board[playerMove.row][playerMove.col] = this.EMPTY;
+                
+                this.currentPlayer = this.PLAYER;
+                this.lastAiMove = null;
+                this.canUndo = false;
+                
+                this.renderBoard();
+                this.updateStatus("あなたの番です（黒石）- 待ったしました");
+                this.updateUndoButton();
+                document.getElementById('hintButton').disabled = false;
+                
+                return true;
+            }
+            
+            async getBestMove() {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        const [, row, col] = this.minimax(this.searchDepth, true, -Infinity, Infinity);
+                        resolve([row, col]);
+                    }, 10);
+                });
+            }
+            
+            minimax(depth, isMaximizing, alpha, beta) {
+                const score = this.evaluateBoard();
+                if (Math.abs(score) > 50000) return [score, null, null];
+                if (depth === 0 || this.isBoardFull()) return [score, null, null];
+                
+                const candidates = this.getCandidateMoves();
+                if (candidates.length === 0) return [0, null, null];
+                
+                let bestMove = { row: -1, col: -1 };
+                
+                if (isMaximizing) {
+                    let maxEval = -Infinity;
+                    for (const [row, col] of candidates) {
+                        this.board[row][col] = this.AI;
+                        const [evalScore] = this.minimax(depth - 1, false, alpha, beta);
+                        this.board[row][col] = this.EMPTY;
+                        if (evalScore > maxEval) {
+                            maxEval = evalScore;
+                            bestMove = { row, col };
+                        }
+                        alpha = Math.max(alpha, evalScore);
+                        if (beta <= alpha) break;
+                    }
+                    return [maxEval, bestMove.row, bestMove.col];
+                } else {
+                    let minEval = Infinity;
+                    for (const [row, col] of candidates) {
+                         if(this.isForbiddenMove(row, col).isForbidden) continue;
+                        this.board[row][col] = this.PLAYER;
+                        const [evalScore] = this.minimax(depth - 1, true, alpha, beta);
+                        this.board[row][col] = this.EMPTY;
+                        if (evalScore < minEval) {
+                            minEval = evalScore;
+                            bestMove = { row, col };
+                        }
+                        beta = Math.min(beta, evalScore);
+                        if (beta <= alpha) break;
+                    }
+                    return [minEval, bestMove.row, bestMove.col];
+                }
+            }
+
+            getCandidateMoves() {
+                const candidates = new Set();
+                if (this.moveHistory.length === 0) {
+                    return [[Math.floor(this.BOARD_SIZE/2), Math.floor(this.BOARD_SIZE/2)]];
+                }
+                
+                for (let r = 0; r < this.BOARD_SIZE; r++) {
+                    for (let c = 0; c < this.BOARD_SIZE; c++) {
+                        if (this.board[r][c] === this.EMPTY) {
+                            if (this.hasNeighbor(r, c)) {
+                                candidates.add(`${r},${c}`);
+                            }
+                        }
+                    }
+                }
+                 const candidateArray = Array.from(candidates).map(s => s.split(',').map(Number));
+                 return candidateArray.length > 0 ? candidateArray : [[Math.floor(this.BOARD_SIZE/2), Math.floor(this.BOARD_SIZE/2)]];
+            }
+
+            hasNeighbor(r, c) {
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        if (i === 0 && j === 0) continue;
+                        const nr = r + i;
+                        const nc = c + j;
+                        if (nr >= 0 && nr < this.BOARD_SIZE && nc >= 0 && nc < this.BOARD_SIZE && this.board[nr][nc] !== this.EMPTY) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            evaluateBoard() {
+                let totalScore = 0;
+                for(let r=0; r<this.BOARD_SIZE; r++){
+                    for(let c=0; c<this.BOARD_SIZE; c++){
+                        totalScore += this.evaluatePosition(r,c);
+                    }
+                }
+                return totalScore;
+            }
+
+            evaluatePosition(r, c) {
+                let score = 0;
+                const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+                directions.forEach(([dr, dc]) => {
+                    score += this.getLineScore(r, c, dr, dc);
+                });
+                return score;
+            }
+
+            getLineScore(r, c, dr, dc) {
+                let aiCount = 0;
+                let playerCount = 0;
+                let emptyCount = 0;
+                for (let i = 0; i < 5; i++) {
+                    const nr = r + i * dr;
+                    const nc = c + i * dc;
+                    if (this.isOutOfBounds(nr, nc)) return 0;
+                    
+                    if(this.board[nr][nc] === this.AI) aiCount++;
+                    else if(this.board[nr][nc] === this.PLAYER) playerCount++;
+                    else emptyCount++;
+                }
+
+                if (aiCount > 0 && playerCount > 0) return 0;
+
+                let score = 0;
+                if(aiCount === 5) score = 100000;
+                else if(aiCount === 4 && emptyCount === 1) score = 10000;
+                else if(aiCount === 3 && emptyCount === 2) score = 1000;
+                else if(aiCount === 2 && emptyCount === 3) score = 100;
+                
+                if(playerCount === 5) score = -100000;
+                else if(playerCount === 4 && emptyCount === 1) score = -10000;
+                else if(playerCount === 3 && emptyCount === 2) score = -1000;
+                else if(playerCount === 2 && emptyCount === 3) score = -100;
+
+                return score;
+            }
+            
+            getPlayerHint() {
+                if (this.gameOver || this.currentPlayer !== this.PLAYER) return [null, null];
+                const tempDepth = this.searchDepth;
+                this.searchDepth = Math.min(tempDepth, 4); 
+                const [, row, col] = this.minimax(this.searchDepth, false, -Infinity, Infinity);
+                this.searchDepth = tempDepth;
+                return [row, col];
+            }
+            
+            // --- UI更新関連 ---
+            updateStatus(message, isThinking = false) {
+                const statusElement = document.getElementById('statusInfo');
+                if(statusElement) {
+                    statusElement.textContent = message;
+                    statusElement.className = 'status-info';
+                    if(isThinking) statusElement.classList.add('thinking');
+                }
+            }
+            
+            updateUndoButton() {
+                const undoButton = document.getElementById('undoButton');
+                const undoInfo = document.getElementById('undoInfo');
+                
+                if(undoButton && undoInfo){
+                    if (this.canUndo && !this.gameOver && this.currentPlayer === this.PLAYER) {
+                        undoButton.disabled = false;
+                        undoInfo.textContent = "AIの最後の手を待ったできます";
+                    } else {
+                        undoButton.disabled = true;
+                        undoInfo.textContent = "";
+                    }
+                }
+            }
+
+            updateStats() {
+                const playerWins = document.getElementById('playerWins');
+                const aiWins = document.getElementById('aiWins');
+                const draws = document.getElementById('draws');
+                if(playerWins && aiWins && draws) {
+                    playerWins.textContent = this.stats.playerWins;
+                    aiWins.textContent = this.stats.aiWins;
+                    draws.textContent = this.stats.draws;
+                }
+            }
+        }
+        
+        let game;
+        
+        // --- グローバル関数 ---
+        function initGame() { game = new GomokuAI(); }
+        
+        function newGame() {
+            hideWinnerMessage(false);
+            if(game) game.initGame();
+        }
+
+        // メッセージ表示
+        function showMessage(message) {
+            document.getElementById('messageText').textContent = message;
+            document.getElementById('messageOverlay').style.display = 'flex';
+        }
+        function hideMessage() {
+            document.getElementById('messageOverlay').style.display = 'none';
+        }
+
+        // 勝者メッセージ表示
+        function showWinnerMessage(message) {
+            document.getElementById('winnerText').textContent = message;
+            document.getElementById('winnerOverlay').style.display = 'flex';
+            setTimeout(() => {
+                 hideWinnerMessage(true);
+            }, 3000);
+        }
+        function hideWinnerMessage(shouldStartNewGame = false) {
+             document.getElementById('winnerOverlay').style.display = 'none';
+             if (shouldStartNewGame) {
+                 // newGame(); //自動で開始しないようにコメントアウト
+             }
+        }
+
+        async function showHint() {
+            if (!game || game.gameOver || game.currentPlayer !== game.PLAYER) return;
+            const hintButton = document.getElementById('hintButton');
+            hintButton.disabled = true;
+            hintButton.textContent = '考え中...';
+
+            const [row, col] = await new Promise(resolve => {
+                setTimeout(() => resolve(game.getPlayerHint()), 10); 
+            });
+            
+            if (row !== null && col !== null && row !== -1) {
+                showMessage(`ヒント：列 ${col + 1}, 行 ${row + 1}`);
+            } else {
+                showMessage("有効なヒントが見つかりませんでした。");
+            }
+            hintButton.disabled = false;
+            hintButton.textContent = 'ヒント';
+        }
+        function undoMove() {
+            if (game) {
+                game.undoLastAiMove();
+            }
+        }
+        
+        // --- 初期化 ---
+        document.addEventListener('DOMContentLoaded', initGame);
+
+    </script>
+</body>
+</html>
